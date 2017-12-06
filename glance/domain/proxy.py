@@ -156,6 +156,36 @@ class ImageMembershipFactory(object):
                                                             **kwargs))
 
 
+class Service(object):
+    def __init__(self, base, member_repo_proxy_class=None,
+                member_repo_proxy_kwargs=None):
+        self.base = base
+        self.helper = Helper(member_repo_proxy_class,
+                            member_repo_proxy_kwargs)
+
+    id = _proxy('base', 'id')
+    name = _proxy('base', 'name')
+    schema = _proxy('base', 'schema')
+    port = _proxy('base', 'port')
+    host = _proxy('base', 'host')
+    endpoint = _proxy('base', 'endpoint')
+    status = _proxy('base', 'status')
+    total_size = _proxy('base', 'total_size')
+    avail_size = _proxy('base', 'avail_size')
+    disk_wwn = _proxy('base', 'disk_wwn')
+    file_system_uuid = _proxy('base', 'file_system_uuid')
+    storage_dir = _proxy('base', 'storage_dir')
+    created_at = _proxy('base', 'created_at')
+    updated_at = _proxy('base', 'updated_at')
+    #deleted_at = _proxy('base', 'deleted_at')
+    #deleted = _proxy('base', 'deleted')
+    extra_properties = _proxy('base', 'extra_properties')
+    tags = _proxy('base', 'tags')
+
+    def delete(self):
+        self.base.delete()
+
+
 class Image(object):
     def __init__(self, base, member_repo_proxy_class=None,
                  member_repo_proxy_kwargs=None):
