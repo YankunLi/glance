@@ -861,6 +861,11 @@ class ResponseSerializer(wsgi.JSONResponseSerializer):
             image_view['file'] = self._get_image_href(image, 'file')
             image_view['schema'] = '/v2/schemas/image'
             image_view = self.schema.filter(image_view)  # domain
+
+            if hasattr(image, 'service'):
+                image_view['service'] = {'service_uuid': image.service['id'],
+                                         'endpoint': image.service['endpoint'],
+                                         'host': image.service['host'],}
             return image_view
         except exception.Forbidden as e:
             raise webob.exc.HTTPForbidden(explanation=e.msg)
