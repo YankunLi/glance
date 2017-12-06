@@ -36,6 +36,15 @@ class Gateway(object):
         self.notifier = notifier or glance.notifier.Notifier()
         self.policy = policy_enforcer or policy.Enforcer()
 
+    def get_service_factory(self, context):
+        service_factory = glance.domain.ServiceFactory()
+        return service_factory
+
+    def get_service_repo(self, context):
+        service_repo = glance.db.ServiceRepo(context, self.db_api)
+
+        return service_repo
+
     def get_image_factory(self, context):
         image_factory = glance.domain.ImageFactory()
         store_image_factory = glance.location.ImageFactoryProxy(
