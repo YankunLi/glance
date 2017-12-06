@@ -456,3 +456,6 @@ class InvalidDataMigrationScript(GlanceException):
     message = _("Invalid data migration script '%(script)s'. A valid data "
                 "migration script must implement functions 'has_migrations' "
                 "and 'migrate'.")
+
+class ServiceNotFound(NotFound):
+    message = _("Don't found available storage node for request")
