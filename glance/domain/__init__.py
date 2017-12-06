@@ -179,6 +179,7 @@ class Image(object):
         self._container_format = kwargs.pop('container_format', None)
         self.size = kwargs.pop('size', None)
         self.virtual_size = kwargs.pop('virtual_size', None)
+        self.service = kwargs.pop('service', {})
         extra_properties = kwargs.pop('extra_properties', {})
         self.extra_properties = ExtraProperties(extra_properties)
         self.tags = kwargs.pop('tags', [])
@@ -288,6 +289,14 @@ class Image(object):
                                                   param='min_ram',
                                                   extra_msg=extra_msg)
         self._min_ram = value
+
+    @property
+    def service(self):
+        return self._service
+
+    @service.setter
+    def service(self, value):
+        self._service = value.copy()
 
     def delete(self):
         if self.protected:
