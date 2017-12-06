@@ -63,6 +63,8 @@ LOG = logging.getLogger(__name__)
 STATUSES = ['active', 'saving', 'queued', 'killed', 'pending_delete',
             'deleted', 'deactivated', 'importing', 'uploading']
 
+SERVICE_STATUES = ['active', 'inactive', 'deleted']
+
 CONF = cfg.CONF
 CONF.import_group("profiler", "glance.common.wsgi")
 
@@ -140,6 +142,332 @@ def _check_mutate_authorization(context, image_ref):
             exc_class = exception.ForbiddenPublicImage
 
         raise exc_class(msg)
+
+
+def _check_service_id(service_id):
+    """
+    check if the given service id is valid before executing operations. For
+    now, we only check its length. The original purpose of this method is
+    wrapping the different behaviors between MySql and DB2 when the service id
+    length is longer than the defined length in database model.
+    :param service: The id of the service we want to check
+    :returns: Raise NoFound exception if given service id is invalid
+    """
+    if (service_id and
+            len(service_id) > models.StorageService.id.property.columns[0].type.length):
+        raise exception.ImageNotFound()
+
+
+def _service_get(context, service_id, session=None, force_show_deleted=False):
+    """Get a service or raise if it dose not exist"""
+    _check_service_id(service_id)
+    session = session or get_session()
+
+    try:
+        query = session.query(models.StorageService).filter_by(id=service_id)
+        if not force_show_deleted:
+            query = query.filter_by(deleted=False)
+
+        service = query.one()
+
+    except sa_orm.exc.NoResultFound:
+        msg = "No storage service found with ID %s" % service_id
+        LOG.debug(msg)
+        raise exception.ImageNotFound(msg)
+
+    return service
+
+
+def _validate_service(values, mandatory_status=True):
+    """
+    Validates the incomming data and raise a Invalid exception
+    if anything is out of order.
+
+    :param values: Mapping of service metadata to check
+    :param mondatory_status: Whether to validate status from values
+    """
+
+    if mandatory_status:
+        status = values.get('status')
+        if not status:
+            msg = "Service status is required."
+            raise exception.Invalid(msg)
+
+        if status not in SERVICE_STATUES:
+            msg = "Invalid service status '%s' for service." % status
+            raise exception.Invalid(msg)
+
+        _validate_db_int(total_size=values.get('total_size'),
+                        vavial_size=values.get('avail_size'))
+
+        return values
+
+
+@retry(retry_on_exception=_retry_on_deadlock, wait_fixed=500,
+        stop_max_attempt_number=50)
+@utils.no_4byte_params
+def _service_update(context, values, service_id, purge_props=False,
+                    from_state=None):
+    """
+    Used internally by image_create and image_update
+
+    :param context: Request context
+    :param values: A dict of attributes to set
+    :param service_id: If None, create the service, otherwise, find and update it
+    """
+    values = values.copy()
+    session = get_session()
+    with session.begin():
+
+        new_status = values.get('status')
+        if service_id:
+            service_ref = _service_get(context, service_id, session=session)
+            current = service_ref.status
+        else:
+            if values.get('total_size') is not None:
+                values['total_size'] = int(values['total_size'])
+
+            if values.get('avail_size') is not None:
+                values['avail_size'] = int(values['avail_size'])
+
+            service_ref = models.StorageService()
+
+        if service_id:
+            _drop_protected_attrs(models.StorageService, values)
+            values['updated_at'] = timeutils.utcnow()
+
+        if service_id:
+            query = session.query(models.StorageService).filter_by(id=service_id)
+            if from_state:
+                query = query.filter_by(status=from_state)
+
+            mandatory_status = True if new_status else False
+            _validate_service(values, mandatory_status=mandatory_status)
+
+            values = {key: values[key] for key in values
+                    if key in service_ref.to_dict()}
+            updated = query.update(values, synchronize_session='fetch')
+
+            if not updated:
+                msg = (_('cannot transition from %(current)s to '
+                         '%(next)s in update (wanted '
+                         'from_state=$(from)s)') %
+                         {'current': current, 'next': new_status,
+                          'from': from_state})
+                raise exception.Conflict(msg)
+ #           service_ref = _service_get(context, service_id, session=session)
+        else:
+            service_ref.update(values)
+
+            values = _validate_service(service_ref.to_dict())
+            _update_values(service_ref, values)
+
+            try:
+                service_ref.save(session=session)
+            except db_exception.DBDuplicateEntry:
+                raise exception.Duplicate("Service ID %s already exists!"
+                                           % values['id'])
+
+    return service_get(context, service_ref.id)
+
+
+def service_get(context, service_id, session=None, force_show_deleted=False,
+        v1_mode=False):
+    service = _service_get(context, service_id=service_id, session=session,
+                        force_show_deleted=force_show_deleted)
+
+    return service
+
+
+def service_get_all(context, filters=None, marker=None, limit=None,
+                    sort_keys=None, sort_dirs=None):
+    """
+    Get all services that match zero or more filters.
+
+    :param filters: dict of filter keys and values.
+    :param marker: service id after which to start page
+    :param limit: maximum number of services to return
+    :param sort_key: list of service attributes by which results should be sorted
+    :param sort_dir: directions in which results should be sorted(asc, desc)
+    """
+    sort_keys = ['created_at'] if not sort_keys else sort_keys
+    default_sort_dir = 'desc'
+
+    if not sort_dirs:
+        sort_dirs = [default_sort_dir] * len(sort_keys)
+    elif len(sort_dirs) == 1:
+        default_sort_dir = sort_dirs[0]
+        sort_dirs *= len(sort_keys)
+
+    filters = filters or {}
+
+    ser_cond = _make_service_conditions_from_filters(filters)
+
+    query = _select_services_query(context, ser_cond)
+
+    marker_service = None
+    if marker is not None:
+        marker_service = _service_get(context, marker)
+
+    for key in ['created_at', 'id']:
+        if key not in sort_keys:
+            sort_keys.append(key)
+            sort_dirs.append(default_sort_dir)
+
+    query = _paginate_query(query, models.StorageService, limit,
+                            sort_keys,
+                            marker=marker_service,
+                            sort_dir=None,
+                            sort_dirs=sort_dirs)
+
+    services = []
+    for service in query.all():
+        service_dict = service.to_dict()
+        services.append(service_dict)
+
+    return services
+
+def service_available_get(context, filters=None, limit=None):
+    ser_cond = _make_service_available_condition_from_filters(filters=filters)
+
+    #query = _select_available_services_query(context, ser_cond)
+    query = _select_services_query(context, ser_cond)
+
+    query = query.order_by(models.StorageService.avail_size.desc())
+
+    services = []
+    if limit:
+        query = query.limit(limit)
+
+    db_services = query.all()
+    for service in db_services:
+        service_dict = service.to_dict()
+        services.append(service_dict)
+
+    return services
+
+
+#def _select_available_services_query(context, service_conditions):
+#    session = get_session()
+#
+#    ser_conditional_clause = sa_sql.and_(*service_conditions)
+#
+#    query_service = session.query(models.StorageService).filter(ser_conditional_clause)
+#
+#    return query_service
+
+def _select_services_query(context, service_conditions):
+    session = get_session()
+
+    ser_conditional_clause = sa_sql.and_(*service_conditions)
+
+    query_service = session.query(models.StorageService).filter(ser_conditional_clause)
+
+    return query_service
+
+def _make_service_available_condition_from_filters(filters=None):
+    service_conditions = []
+    if filters:
+        service_conditions.append(models.StorageService.status == 'active')
+        #pass TODO
+    else:
+        service_conditions.append(models.StorageService.status == 'active')
+
+    return service_conditions
+
+def _make_service_conditions_from_filters(filters):
+    filters = filters.copy()
+
+    service_conditions = []
+
+    if 'deleted' in filters:
+        deleted_filter = filters.pop('deleted')
+        service_conditions.append(models.StorageService.deleted == deleted_filter)
+
+    filters = {k: v for k, v in filters.items() if v is not None}
+
+    keys = list(filters.keys())
+    for k in keys:
+        key = k
+        if k.endswith('_min') or k.endswith('_max'):
+            key = key[0:-4]
+            try:
+                v = int(filters.pop(k))
+            except ValueError:
+                msg = _("Unable to filter on a range "
+                        "with a non-numeric value.")
+                raise exception.InvalidFilterRangeValue(msg)
+            if k.endswith('_min'):
+                service_conditions.append(getattr(models.StorageService, key) >= v)
+            if k.endswith('_max'):
+                service_conditions.append(getattr(models.StorageService, key) <= v)
+        elif k in ['created_at', 'updated_at']:
+            attr_value = getattr(models.StorageService, key)
+            operator, isotime = utils.split_filter_op(filters.pop(k))
+            try:
+                parsed_time = timeutils.parse_iostime(isotime)
+                threshold = timeutils.normalize_time(parsed_time)
+            except ValueError:
+                msg = (_("Bad \"%s\" query filter format. "
+                        "Use ISO 8601 DateTime notation") % k)
+                raise exception.InvalidParameterValue(msg)
+
+            comparison = utils.evaluate_filter_op(attr_value, operator, threshold)
+
+            service_conditions.append(comparison)
+
+        elif k in ['disk_wwn', 'id', 'port', 'name', 'file_system_uuid',
+                    'storage_dir', 'endpoint', 'host', 'status']:
+            attr_value = getattr(models.StorageService, key)
+            operator, list_value = utils.split_filter_op(filters.pop(k))
+            if operator == 'in':
+                threshold = utils.split_filter_value_for_quotes(list_value)
+                comparison = attr_value.in_(threshold)
+                service_conditions.append(comparison)
+            elif operator == 'eq':
+                service_conditions.append(attr_value == list_value)
+            else:
+                msg = (_("Unable to filter by unknown operator '%s'.") % operator)
+                raise exception.InvalidFilterOperatorValue(msg)
+
+    for (k, value) in filters.items():
+        if hasattr(models.StorageService, k):
+            service_conditions.append(getattr(models.StorageService, k) == value)
+
+    return service_conditions
+
+
+
+def service_create(context, values, v1_mode=False):
+    """Create an service from the values dictionary"""
+    service = _service_update(context, values, None, purge_props=False)
+    if v1_mode:
+        pass#we don't need this
+    return service
+
+
+def service_update(context, service_id, values, purge_props=False,
+                    from_state=None):
+    """Set the given properties on an service and update it.
+
+    :raises: ServiceNotFound if service does not exist.
+    """
+    service = _service_update(context, values, service_id, purge_props,
+                                from_state=from_state)
+
+    return service
+
+
+def service_destroy(context, service_id):
+    """Destroy the service or raise if it does not exist."""
+    session = get_session()
+    with session.begin():
+        service_ref = _service_get(context, service_id, session=session)
+
+        service_ref.delete(session=session)
+        delete_time = service_ref.deleted_at
+
+        return service_ref
 
 
 def image_create(context, values, v1_mode=False):
