@@ -202,7 +202,10 @@ class ImageRepo(object):
             msg = _("No image found with ID %s") % image_id
             raise exception.ImageNotFound(msg)
         tags = self.db_api.image_tag_get_all(self.context, image_id)
-        image = self._format_image_from_db(db_api_image, tags)
+        db_service =  dict(self.db_api.service_get(self.context,
+                                                   db_api_image.get('service_uuid')))
+        image = self._format_image_from_db(db_api_image, tags,
+                                           db_service=db_service)
         return ImageProxy(image, self.context, self.db_api)
 
     def list(self, marker=None, limit=None, sort_key=None,
@@ -216,11 +219,12 @@ class ImageRepo(object):
         images = []
         for db_api_image in db_api_images:
             db_image = dict(db_api_image)
-            image = self._format_image_from_db(db_image, db_image['tags'])
+            db_service = dict(self.db_api.service_get(self.context, db_image.get('service_uuid')))
+            image = self._format_image_from_db(db_image, db_image['tags'], db_service=db_service)
             images.append(image)
         return images
 
-    def _format_image_from_db(self, db_image, db_tags):
+    def _format_image_from_db(self, db_image, db_tags, db_service=None):
         properties = {}
         for prop in db_image.pop('properties'):
             # NOTE(markwash) db api requires us to filter deleted
@@ -249,6 +253,7 @@ class ImageRepo(object):
             container_format=db_image['container_format'],
             size=db_image['size'],
             virtual_size=db_image['virtual_size'],
+            service=db_service,
             extra_properties=properties,
             tags=db_tags
         )
@@ -282,6 +287,7 @@ class ImageRepo(object):
             'virtual_size': image.virtual_size,
             'visibility': image.visibility,
             'properties': dict(image.extra_properties),
+            'service_uuid': image.service.get('id'),
         }
 
     def add(self, image):
