@@ -49,7 +49,8 @@ EXPAND_BRANCH = 'expand'
 CONTRACT_BRANCH = 'contract'
 CURRENT_RELEASE = 'queens'
 ALEMBIC_INIT_VERSION = 'liberty'
-LATEST_REVISION = 'pike01'
+#LATEST_REVISION = 'pike01'
+LATEST_REVISION = 'board'
 INIT_VERSION = 0
 
 MIGRATE_REPO_PATH = os.path.join(
