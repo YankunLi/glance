@@ -73,6 +73,120 @@ IMAGE_ATTRS = BASE_MODEL_ATTRS | set(['name', 'status', 'size', 'virtual_size',
                                       'protected'])
 
 
+class ServiceProxy(glance.domain.proxy.Service):
+    """proxy for Service dict instance"""
+    def __init__(self, service, context, db_api):
+        self.context = context
+        self.db_api = db_api
+        self.service = service
+        super(ServiceProxy, self).__init__(service)
+
+
+class ServiceRepo(object):
+    def __init__(self, context, db_api):
+        self.context = context
+        self.db_api = db_api
+
+    def _format_service_to_db(self, service):
+        """format service instance to dict for db"""
+        return {
+                "id": service.id,
+                "name": service.name,
+                "schema": service.schema,
+                "port": service.port,
+                "host": service.host,
+                "endpoint": service.endpoint,
+                "status": service.status,
+                "total_size": service.total_size,
+                "avail_size": service.avail_size,
+                "disk_wwn": service.disk_wwn,
+                "file_system_uuid": service.file_system_uuid,
+                "storage_dir": service.storage_dir,
+                "created_at": service.created_at,
+                "updated_at": service.updated_at
+                }
+
+    def _format_service_from_db(self, db_service):
+        return glance.domain.Service(
+        service_id = db_service['id'],
+        status = db_service['status'],
+        name = db_service['name'],
+        schema = db_service['schema'],
+        port = db_service['port'],
+        host = db_service['host'],
+        endpoint = db_service['endpoint'],
+        total_size = db_service['total_size'],
+        avail_size = db_service['avail_size'],
+        disk_wwn = db_service['disk_wwn'],
+        file_system_uuid = db_service['file_system_uuid'],
+        storage_dir = db_service['storage_dir'],
+        created_at = db_service['created_at'],
+        updated_at = db_service['updated_at'],
+        extra_properties = {},
+        tags = {}
+        )
+
+    def add(self, service):
+        service_values = self._format_service_to_db(service)
+
+        if (service_values['avail_size'] is not None
+         and service_values['total_size'] is not None
+         and service_values['total_size'] < service_values['avail_size']):
+            raise exception.ImageSizeLimitExceeded
+
+        new_values = self.db_api.service_create(self.context, service_values)
+        service.created_at = new_values['created_at']
+        service.updated_at = new_values['updated_at']
+
+    def get(self, service_id):
+        try:
+            db_api_service = dict(self.db_api.service_get(self.context, service_id))
+            if db_api_service['deleted']:
+                raise exception.ImageNotFound()
+        except (exception.ImageNotFound, exception.Forbidden):
+            msg = _("No storage service found with ID %s") % service_id
+            raise exception.ImageNotFound(msg)
+        service = self._format_service_from_db(db_api_service)
+        return ServiceProxy(service, self.context, self.db_api)
+
+    def remove(self, service):
+        try:
+            self.db_api.service_update(self.context, service.id,
+                                        {'status': service.status},
+                                        purge_props=True)
+        except (exception.ImageNotFound, exception.Forbidden):
+            msg = _("No image found with ID %s") % service_id
+            raise exception.ImageNotFound(msg)
+        new_values = self.db_api.service_destroy(self.context, service.id)
+        service.updated_at = new_values['updated_at']
+
+    def save(self, service, from_state=None):
+        service_values = self._format_service_to_db(service)
+        try:
+            new_values = self.db_api.service_update(self.context,
+                                                  service.id,
+                                                  service_values,
+                                                  purge_props=True,
+                                                  from_state=from_state)
+        except (exception.ImageNotFound, exception.Forbidden):
+            msg = _("No service found with ID %s") % service.id
+            raise exception.ImageNotFound(msg)
+        service.updated_at = new_values['updated_at']
+    def list(self, marker=None, limit=None, sort_keys=None,
+            sort_dirs=None, filters=None):
+        sort_keys = ['created_at'] if not sort_keys else sort_keys
+        sort_dirs = ['desc'] if not sort_dirs else sort_dirs
+        db_api_services = self.db_api.service_get_all(
+                self.context, filters=filters, marker=marker, limit=limit,
+                sort_keys=sort_keys, sort_dirs=sort_dirs)
+        services = []
+        for db_api_service in db_api_services:
+            db_service = dict(db_api_service)
+            service = self._format_service_from_db(db_service)
+            services.append(service)
+        return services
+
+
 class ImageRepo(object):
 
     def __init__(self, context, db_api):
