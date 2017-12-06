@@ -62,6 +62,63 @@ class ImageRepoProxy(glance.domain.proxy.Repo):
                                     read_tenants=member_ids,
                                     context=self.context)
 
+    def _set_service_uuid(self, image, service_uuid, force_overwrite=False):
+        if image.service_uuid is None:
+            image.service_uuid = service_uuid
+        elif force_overwrite:
+            image.service_uuid = service_uuid
+
+    def _get_available_nodes(self, status=None, available_size=None):
+        """
+        Select available storage node
+        """
+        services = [{'service_uuid': '121212121212121212',
+                    'endpoint': 'http://127.0.0.1:8989' },
+                    {'service_uuid': '212121212121212121',
+                    'endpoint': 'http://127.0.0.1:8988' }
+                    ]
+        services = self.db_api.service_available_get(self.context, limit=5)
+
+        return services
+
+    def _get_vailable_node(self, available_size=None):
+        pass
+
+    def _choose_service_for_image(self, reigon=None, zone=None, size=None):
+        """
+        Choose a service (storage node) to receive data, if success,  return service.id
+        otherwise return None
+        """
+        return self._get_available_nodes()
+
+    def _count_bit(self, number):
+        bit = 1
+        while number / 10:
+            bit = bit + 1
+
+        return bit
+
+    def _random_int(self, seed=None):
+        import random
+        count_numb = self._count_bit(seed)
+        return int(random.random() * 10 ** count_numb % seed)
+
+    def _set_service(self, image):
+        """Set service_uuid for image"""
+        services = self._choose_service_for_image()
+        if services:
+            service = services[self._random_int(seed=5)]
+            self.node = service.copy()
+        else:
+            msg = _("Don't found any available storage node")
+            raise exception.ServiceNotFound(message=msg)
+        #user can specify storage node
+        service_dict = image.service
+        service_dict.update(service)
+        image.service = service_dict.copy()
+        #service_uuid = service['service_uuid']
+        #self._set_service_uuid(image, service_uuid)
+
     def add(self, image):
         result = super(ImageRepoProxy, self).add(image)
         self._set_acls(image)
