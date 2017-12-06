@@ -26,6 +26,7 @@ from glance.api.v2 import metadef_resource_types
 from glance.api.v2 import metadef_tags
 from glance.api.v2 import schemas
 from glance.api.v2 import tasks
+from glance.api.v2 import services
 from glance.common import wsgi
 
 
@@ -565,5 +566,29 @@ class API(wsgi.Router):
                        controller=reject_method_resource,
                        action='reject',
                        allowed_methods='GET')
+
+        #service API
+        services_resource = services.create_resource()
+        mapper.connect('/services',
+                        controller=services_resource,
+                        action='create',
+                        conditions={'method': ['POST']})
+        mapper.connect('/services/{service_id}',
+                        controller=services_resource,
+                        action='show',
+                        conditions={'method': ['GET']})
+        mapper.connect('/services/{service_id}',
+                        controller=services_resource,
+                        action='delete',
+                        conditions={'method': ['DELETE']},
+                        body_reject=True)
+        mapper.connect('/services/{service_id}',
+                        controller=services_resource,
+                        action='update',
+                        conditions={'method': ['PATCH']})
+        mapper.connect('/services',
+                        controller=services_resource,
+                        action='index',
+                        conditions={'method': ['GET']})
 
         super(API, self).__init__(mapper)
