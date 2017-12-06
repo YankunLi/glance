@@ -138,6 +138,7 @@ class Image(BASE, GlanceBase):
     owner = Column(String(255))
     protected = Column(Boolean, nullable=False, default=False,
                        server_default=sql.expression.false())
+    service_uuid =Column(String(36), nullable=False)
 
 
 class ImageProperty(BASE, GlanceBase):
