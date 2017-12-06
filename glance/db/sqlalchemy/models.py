@@ -248,6 +248,33 @@ class TaskInfo(BASE, models.ModelBase):
     message = Column(Text)
 
 
+class StorageService(BASE, GlanceBase):
+    """Represents storage service endpoint in the datastore"""
+    __tablename__ = 'storage_services'
+    __table_args__ = (Index('ix_storageServices_endpoint', 'endpoint'),
+                      Index('ix_storageServices_status', 'status'),
+                      Index('ix_storageServices_avail_size', 'avail_size'),
+                      Index('ix_storageServices_file_system_uuid', 'file_system_uuid'),
+                      Index('ix_storageServices_disk_wwn', 'disk_wwn'),
+                      Index('ix_storageServices_updated_at', 'updated_at'),
+                      Index('ix_storageServices_deleted', 'deleted'))
+
+    id = Column(String(36), primary_key=True,
+            default=lambda: str(uuid.uuid4()))
+    name = Column(String(30), nullable=True)
+    schema = Column(String(10), nullable=False)
+    port = Column(String(10), nullable=False)
+    host = Column(String(30), nullable=False)
+    endpoint = Column(String(100), nullable=False)
+    status = Column(String(30), nullable=False)
+
+    total_size = Column(BigInteger().with_variant(Integer, "sqlite"))
+    avail_size = Column(BigInteger().with_variant(Integer, "sqlite"))
+    disk_wwn = Column(String(50), nullable=False)
+    file_system_uuid = Column(String(50), nullable=False)
+    storage_dir = Column(String(100), nullable=False)
+
+
 def register_models(engine):
     """Create database tables for all models with the given engine."""
     models = (Image, ImageProperty, ImageMember)
