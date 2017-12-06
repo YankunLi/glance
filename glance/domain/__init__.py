@@ -46,6 +46,56 @@ def _import_delayed_delete():
         _delayed_delete_imported = True
 
 
+class ServiceFactory(object):
+    def new_service(self, service_id=None, status=None, created_at=None, updated_at=None,
+                    name=None, schema=None, host=None, port=None, endpoint=None, total_size=0,
+                    avail_size=None, disk_wwn=None, file_system_uuid=None, storage_dir=None,
+                    extra_properties=None, tags=None, **other_args):
+        extra_properties = extra_properties or {}
+        if service_id is None:
+            service_id = str(uuid.uuid4())
+        created_at = timeutils.utcnow()
+        updated_at = created_at
+        status = 'active'
+        if disk_wwn is None:
+            pass #raise
+        if file_system_uuid is None or storage_dir is None:
+            pass #raise
+
+        return Service(service_id=service_id, status="active", created_at=created_at,
+                        updated_at=updated_at, name=name, schema=schema, host=host,
+                        port=port, endpoint=endpoint, total_size=total_size,
+                        avail_size=avail_size, disk_wwn=disk_wwn, file_system_uuid=file_system_uuid,
+                        storage_dir=storage_dir, extra_properties=extra_properties, tags=tags or tags)
+
+
+class Service(object):
+
+    def __init__(self, service_id, status, created_at, updated_at, **kwargs):
+        self.id = service_id
+        self.status = status
+        self.created_at = created_at
+        self.updated_at = updated_at
+        self.name = kwargs.pop('name', None)
+        self.schema = kwargs.pop('schema', None)
+        self.host = kwargs.pop('host', None)
+        self.port = kwargs.pop('port', None)
+        self.endpoint = kwargs.pop('endpoint', None)
+        self.total_size = kwargs.pop('total_size', None)
+        self.avail_size = kwargs.pop('avail_size', None)
+        self.disk_wwn = kwargs.pop('disk_wwn', None)
+        self.file_system_uuid = kwargs.pop('file_system_uuid', None)
+        self.storage_dir = kwargs.pop('storage_dir', None)
+        extra_properties = kwargs.pop('extra_properties', {})
+        self.extra_properties = ExtraProperties(extra_properties)
+        self.tags = kwargs.pop('tags', [])
+        if kwargs:
+            message = _("__init__() got unexpected keyword argument '%s'")
+            raise TypeError(message % list(kwargs.keys())[0])
+
+    def delete(self):
+        self.status = 'deleted'
+
 class ImageFactory(object):
     _readonly_properties = ['created_at', 'updated_at', 'status', 'checksum',
                             'size', 'virtual_size']
