@@ -73,8 +73,6 @@ class RequestDeserializer(wsgi.JSONRequestDeserializer):
         return output['body']
 
     def create(self, request):
-        import pdb
-        pdb.set_trace()
         body = self._get_request_body(request)
         service = {}
         properties = body
@@ -286,8 +284,6 @@ class ServiceController(object):
 
     @utils.mutating
     def create(self, req, service, extra_properties, tags):
-        import pdb
-        pdb.set_trace()
         service_factory = self.gateway.get_service_factory(req.context)
         service_repo = self.gateway.get_service_repo(req.context)
         try:
@@ -429,8 +425,6 @@ class ResponseSerializer(wsgi.JSONResponseSerializer):
 
 
     def create(self, response, service):
-        import pdb
-        pdb.set_trace()
         response.status_int = http.CREATED
         self.show(response, service)
 
