@@ -120,6 +120,7 @@ class ImageRepoProxy(glance.domain.proxy.Repo):
         #self._set_service_uuid(image, service_uuid)
 
     def add(self, image):
+        self._set_service(image)
         result = super(ImageRepoProxy, self).add(image)
         self._set_acls(image)
         return result
