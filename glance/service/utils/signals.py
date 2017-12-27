@@ -6,8 +6,8 @@ def signal_to_exception(signum, frame):
     """convert signal to exception"""
     if signum == signal.SIGALRM:
         raise SIGALRMException()
-    if signum == signal.SIGHUB:
-        raise SIGHUBException()
+    if signum == signal.SIGHUP:
+        raise SIGHUPException()
     raise SIGNALException(signum)
 
 class SIGNALException(Exception):
@@ -16,5 +16,5 @@ class SIGNALException(Exception):
 class SIGALRMException(SIGNALException):
     pass
 
-class SIGHUBException(SIGNALException):
+class SIGHUPException(SIGNALException):
     pass
